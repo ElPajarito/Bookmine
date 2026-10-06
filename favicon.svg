@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- BOOKmine: an open book under lamplight -->
+  <circle cx="32" cy="32" r="32" fill="#1a1208"/>
+  <!-- the glow above the page -->
+  <circle cx="32" cy="24" r="15" fill="#c9963f" opacity="0.16"/>
+  <!-- left leaf -->
+  <path d="M32 22c-6-4.4-13-5-19-3v25c6-2 13-1.4 19 3z" fill="#f2dfae"/>
+  <!-- right leaf -->
+  <path d="M32 22c6-4.4 13-5 19-3v25c-6-2-13-1.4-19 3z" fill="#d9c391"/>
+  <!-- the gutter -->
+  <path d="M32 22v25" stroke="#1a1208" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- ruled lines -->
+  <g stroke="#1a1208" stroke-width="1.5" stroke-linecap="round" opacity="0.28">
+    <path d="M19 26.5h8M19 32h8M19 37.5h8"/>
+    <path d="M37 26.5h8M37 32h8M37 37.5h8"/>
+  </g>
+  <!-- ribbon marker -->
+  <path d="M40 19v13l-3-3-3 3V19z" fill="#c9963f"/>
+</svg>

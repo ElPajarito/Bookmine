@@ -1,0 +1,1039 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   BOOKmine — the corridor.
+
+   A real CSS 3D corridor: two bookshelf walls, a cobbled floor and a dark
+   ceiling, all actual planes in space, so a torch further down the hall is
+   genuinely smaller and the shelves genuinely converge.
+
+   Textures are CC0 (OpenGameArt, ARoachIFoundOnMyPillow's 16x16 set) for the
+   planks, obsidian, cobble and stone. The bookshelf, torch and enchanting
+   table are drawn here in the same palette — Mojang's own textures are theirs
+   and cannot ship on a public page.
+
+   Nothing uses filter, backdrop-filter or mix-blend-mode. Glow is radial
+   gradients on static planes; only transform and opacity animate.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* the room, in pixels of world space */
+  --hall-w: 680px;        /* wall to wall */
+  --hall-h: 620px;        /* floor to ceiling */
+  --hall-d: 1900px;       /* how far it runs */
+  --tile: 58px;           /* one Minecraft block on screen */
+
+  --c-void:   #07060C;
+  --c-stone:  #414453;
+  --c-plank:  #B49D7E;
+  --c-flame:  #FFC440;
+  --c-flame2: #FF8A24;
+  --c-ench:   #A8262C;
+  --c-glyph:  #C9B6FF;
+  --c-lapis:  #2A5FD0;
+  --c-xp:     #7BE04A;
+  --c-text:   #ECE6DA;
+  --c-dim:    #9A917F;
+  --c-parch:  #D8C49A;
+  --c-ink:    #2C2013;
+
+  --t-fast: 90ms;
+  --t-base: 150ms;
+  --t-slow: 240ms;
+  --ease: cubic-bezier(.2, .9, .25, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-void); }
+body { font-family: "Nunito", system-ui, sans-serif; color: var(--c-text); }
+
+img, .tex { image-rendering: pixelated; }
+
+/* ══════════ the corridor ══════════ */
+/* A baked render of the 3D room. See index.html for why it is baked. */
+.scene {
+  position: fixed; inset: 0; overflow: hidden;
+  background: #07060C;
+}
+.corridor-plate {
+  position: absolute; inset: 0;
+  /* background-image is set by mc.js from the visitor's hour */
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+/* The flat light overlay. These sit ABOVE the corridor, not inside it, so
+   their flicker composites on its own layer and leaves the 3D scene alone. */
+.glow-layer, .mote-layer {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.glow2 {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255,214,130,.34) 0%, rgba(255,150,56,.14) 40%, transparent 70%);
+  animation: flicker var(--fd, 2.6s) ease-in-out infinite alternate;
+  will-change: opacity;
+}
+@keyframes flicker { from { opacity: .45; } to { opacity: 1; } }
+
+.mote2 {
+  position: absolute;
+  width: 3px; height: 3px;
+  background: var(--c-flame);
+  opacity: 0;
+  animation: mote-rise var(--md, 9s) linear infinite;
+  animation-delay: var(--mdelay, 0s);
+  will-change: transform, opacity;
+}
+@keyframes mote-rise {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  14%  { opacity: .8; }
+  70%  { opacity: .45; }
+  100% { transform: translate3d(var(--mdx, 6px), -150px, 0); opacity: 0; }
+}
+
+/* ══════════ the Read shelf ══════════ */
+/* It IS the wall. Nothing is drawn at rest: the four blocks are the same baked
+   shelf as every other block. This element is an invisible hotspot, clipped
+   to exactly those blocks' outline on screen (measured at bake time), and it
+   only shows itself when the pointer is on it.
+   The previous version was a separate little 3D element with its own texture
+   scale and perspective, so however it was tuned it never quite matched. */
+.read-zone {
+  position: absolute; inset: 0;
+  z-index: 10;
+  padding: 0; border: 0; margin: 0;
+  background: transparent;
+  cursor: pointer;
+  /* clip-path is set by mc.js; it clips hit-testing as well as paint */
+  transition: background-color var(--t-fast) linear;
+}
+.read-zone:hover, .read-zone:focus-visible {
+  outline: none;
+  background:
+    radial-gradient(circle at var(--zx, 50%) var(--zy, 50%),
+      rgba(255, 86, 70, .50) 0%, rgba(214, 30, 26, .30) 55%, rgba(170, 14, 14, .22) 100%);
+}
+.read-label {
+  position: absolute;
+  z-index: 11;
+  transform: translate(-50%, -100%);
+  padding: 3px 11px;
+  background: #100A18;
+  border: 2px solid #5A1A1A;
+  color: #FF6A60;
+  font-family: "Nunito", system-ui, sans-serif; font-weight: 800;
+  font-size: 15px;
+  letter-spacing: .08em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast) linear;
+}
+.read-label b { color: var(--c-xp); font-family: "Nunito", sans-serif; font-size: 12px; margin-left: 6px; }
+.read-zone:hover ~ .read-label,
+.read-zone:focus-visible ~ .read-label { opacity: 1; }
+
+/* ══════════ the scroll, top left ══════════ */
+.scroll-trigger {
+  position: absolute;
+  z-index: 30;
+  left: 2.5%; top: 14px;
+  width: 168px;
+  padding: 0; background: none; border: 0;
+  cursor: pointer;
+  transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) linear;
+}
+.scroll-trigger img { width: 100%; height: auto; display: block; image-rendering: auto; }
+/* the label sits on the sheet, not under it */
+.scroll-trigger:hover  { transform: translateY(2px) scale(1.03); }
+.scroll-trigger:active { transform: translateY(4px) scale(.99); }
+.scroll-trigger.spent  { opacity: 0; pointer-events: none; }
+.trig-count {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: "Nunito", system-ui, sans-serif; font-weight: 800;
+  font-size: 24px; color: #3B2A16;
+  pointer-events: none;
+}
+.trig-label {
+  position: absolute; left: 50%; top: 104%;
+  transform: translateX(-50%);
+  font-family: "Nunito", system-ui, sans-serif; font-weight: 800;
+  font-size: 14px; letter-spacing: .06em;
+  color: var(--c-parch); white-space: nowrap; pointer-events: none;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* ══════════ the enchanting table ══════════ */
+/* Minecraft's own block render, sitting in the one cold light in the room.
+   Everything else here is torch-warm, so the blue is what marks it as
+   enchanted rather than merely lit. */
+.ench {
+  position: absolute;
+  z-index: 26;
+  left: 50%; bottom: 1.5%;
+  transform: translateX(-50%);
+  width: 148px; height: 141px;
+  padding: 0; border: 0; background: none;
+  cursor: pointer;
+}
+.ench-block {
+  position: absolute; inset: 0;
+  background: url("mc/ench-block.png") no-repeat center / 100% 100%;
+  image-rendering: pixelated;
+  transition: transform var(--t-fast) var(--ease);
+}
+.ench:hover .ench-block { transform: translateY(-3px); }
+/* the default focus box drew a hard rectangle across the pool; keyboard focus
+   brightens the block itself instead */
+.ench:focus { outline: none; }
+.ench:focus-visible { outline: none; }
+.ench:focus-visible .ench-block {
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 2px #8FDCFF, 0 0 18px rgba(120, 220, 255, .7);
+}
+.ench-book:focus { outline: none; }
+.ench-book:focus-visible img, .ench-book:focus-visible svg {
+  box-shadow: 0 0 0 2px #8FDCFF, 0 8px 26px rgba(0,0,0,.6);
+}
+
+/* the cold pool it stands in */
+.ench-glow {
+  position: absolute;
+  left: 50%; bottom: 0;
+  width: 560px; height: 420px;
+  margin-left: -280px;
+  pointer-events: none;
+  z-index: 25;
+  /* Concentrated, not spread: a wide soft wash over a dark floor reads as
+     nothing. The pool is tight around the table and genuinely bright. */
+  background:
+    radial-gradient(ellipse 30% 22% at 50% 78%,
+      rgba(150, 232, 255, .85) 0%, rgba(74, 168, 240, .52) 38%,
+      rgba(34, 104, 200, .22) 62%, transparent 78%),
+    radial-gradient(ellipse 15% 11% at 50% 80%,
+      rgba(236, 252, 255, .78) 0%, transparent 72%);
+  animation: ench-breathe 4.4s ease-in-out infinite alternate;
+  will-change: opacity;
+}
+@keyframes ench-breathe { from { opacity: .72; } to { opacity: 1; } }
+
+/* the idle magic: motes lifting off the table */
+.ench-sparks {
+  position: absolute;
+  left: 50%; bottom: calc(1.5% + 96px);
+  width: 0; height: 0;
+  z-index: 27;
+  pointer-events: none;
+}
+.ench-sparks i {
+  position: absolute;
+  left: var(--sx); top: 0;
+  width: var(--ss); height: var(--ss);
+  background: #CFF4FF;
+  box-shadow: 0 0 6px 1px rgba(120, 220, 255, .85);
+  opacity: 0;
+  animation: spark-rise var(--sd) ease-out infinite;
+  animation-delay: var(--sdelay);
+  will-change: transform, opacity;
+}
+@keyframes spark-rise {
+  0%   { transform: translate3d(0, 0, 0) scale(.6); opacity: 0; }
+  18%  { opacity: .95; }
+  70%  { opacity: .45; }
+  100% { transform: translate3d(var(--sdrift), -120px, 0) scale(1); opacity: 0; }
+}
+.ench-label {
+  position: absolute;
+  left: 50%; bottom: -16px;
+  transform: translateX(-50%);
+  font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  color: #A8E4FF; white-space: nowrap; pointer-events: none;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* the held book, stored above the table */
+.ench-book {
+  position: absolute;
+  z-index: 28;
+  left: 50%; bottom: calc(5% + 120px);
+  width: 78px;
+  margin-left: -39px;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  animation: hover-turn 5.2s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes hover-turn {
+  0%   { transform: translateY(0)     rotateY(-26deg) rotateZ(-1.5deg); }
+  50%  { transform: translateY(-13px) rotateY( 26deg) rotateZ( 1.5deg); }
+  100% { transform: translateY(0)     rotateY(-26deg) rotateZ(-1.5deg); }
+}
+.ench-book img, .ench-book svg {
+  width: 100%; height: auto; display: block;
+  box-shadow: 0 8px 26px rgba(0,0,0,.6), 0 0 22px rgba(110, 200, 255, .5);
+}
+.ench-book:hover { animation-play-state: paused; }
+.ench-caption {
+  position: absolute;
+  left: 50%; bottom: calc(5% + 98px);
+  transform: translateX(-50%);
+  z-index: 27; text-align: center; pointer-events: none; max-width: 280px;
+}
+.ench-title  { font-size: 11px; font-weight: 700; text-shadow: 1px 1px 0 #000; }
+.ench-author { font-size: 9px; color: var(--c-dim); text-shadow: 1px 1px 0 #000; }
+
+/* ══════════ falling books — flat overlay, unchanged ══════════ */
+.fall-layer { position: absolute; inset: 0; z-index: 20; pointer-events: none; overflow: hidden; }
+.fall-book {
+  position: absolute;
+  top: 0; left: var(--x);
+  width: var(--w);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: descend var(--dur) linear infinite;
+  animation-delay: var(--delay);
+  will-change: transform;
+}
+.fall-book:hover, .fall-book:focus-visible { animation-play-state: paused; z-index: 3; }
+/* Caught by a click: it stays exactly where you took it while the detail view
+   is open, then resumes from that spot. !important because :hover would
+   otherwise release it the moment the pointer moves onto the detail view. */
+.fall-book.caught { animation-play-state: paused !important; z-index: 3; }
+/* lifted out while it is in the air; the detail view is carrying it */
+.fall-book.lifted, #enchBook.lifted { visibility: hidden; }
+.card.lifted .book { visibility: hidden; }
+
+/* Every falling cover in Vagabond's proportions (328 x 475). Covers ranged
+   from nearly square to very tall, so they are cropped to fill rather than
+   letterboxed or stretched. */
+/* No overflow:hidden here: it would force transform-style:flat and break the
+   3D hinge. object-fit:cover already crops inside the image's own box. */
+.fall-book .book-cover {
+  aspect-ratio: 328 / 475;
+  /* A consistent edge on every book. Dark covers (The Anarchist Cookbook,
+     Discipline Equals Freedom) otherwise dissolve into the dark corridor and
+     read as SMALLER books, though every box is exactly the same size. */
+  box-shadow:
+    0 0 0 1px rgba(255, 232, 196, .26),
+    0 6px 16px rgba(0, 0, 0, .55);
+  border-radius: 3px 7px 7px 3px;
+}
+.fall-book .book-cover img,
+.fall-book .book-cover svg { width: 100%; height: 100%; object-fit: cover; }
+@keyframes descend {
+  0%    { transform: translate3d(0, -40vh, 0) rotate(var(--r0)) scaleY(1.16); opacity: 0;
+          animation-timing-function: cubic-bezier(.02,.78,.16,1); }
+  0.5%  { opacity: 1; }
+  1.1%  { transform: translate3d(calc(var(--sway) * .1), -2vh, 0) rotate(var(--r1)) scaleY(1);
+          animation-timing-function: linear; }
+  52%   { transform: translate3d(var(--sway), 44vh, 0) rotate(var(--r1)); }
+  92%   { opacity: 1; }
+  100%  { transform: translate3d(0, 120vh, 0) rotate(var(--r0)); opacity: 0; }
+}
+
+/* ══════════ a book ══════════ */
+/* Soft and rounded, like a real hardback: rounded corners (tighter at the
+   spine than at the fore-edge), a page block with a rounded fore-edge, and a
+   gentle spine shade. The stepped top sliver is gone - it was the sharp notch
+   at the top-left corner. */
+.book { position: relative; perspective: 1100px; --r-spine: 3px; --r-edge: 7px; }
+.book-top { display: none; }
+.book-pages {
+  position: absolute; inset: 1.2% -2.2% 1.2% 5%;
+  border-radius: 2px var(--r-edge) var(--r-edge) 2px;
+  background:
+    repeating-linear-gradient(0deg, rgba(120,96,60,.10) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, #CDB88E 0%, #EFE3C6 70%, #D9C7A2 100%);
+  box-shadow: 1px 2px 6px rgba(0,0,0,.35);
+}
+.book-cover {
+  position: relative;
+  transition: transform var(--t-base) var(--ease);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  border-radius: var(--r-spine) var(--r-edge) var(--r-edge) var(--r-spine);
+}
+.book-cover img, .book-cover svg {
+  width: 100%; height: auto; display: block; backface-visibility: hidden;
+  border-radius: var(--r-spine) var(--r-edge) var(--r-edge) var(--r-spine);
+}
+/* the spine: a soft crease where the board bends, not a hard dark band */
+.book-cover::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 9%;
+  border-radius: var(--r-spine) 0 0 var(--r-spine);
+  background: linear-gradient(90deg,
+    rgba(0,0,0,.30) 0%, rgba(255,255,255,.10) 38%, rgba(0,0,0,.14) 62%, transparent 100%);
+  pointer-events: none;
+}
+.cover-back {
+  position: absolute; inset: 0;
+  transform: rotateY(180deg); backface-visibility: hidden;
+  border-radius: var(--r-edge) var(--r-spine) var(--r-spine) var(--r-edge);
+  background: #2A2436;
+}
+.fall-book:hover .book-cover,
+.fall-book:focus-visible .book-cover { transform: rotateY(-19deg); }
+.card:hover .book-cover,
+.card:focus-visible .book-cover { transform: translate3d(-2px, -4px, 0) rotateY(-5deg); }
+
+/* ══════════ search ══════════ */
+.search-wrap {
+  position: absolute;
+  z-index: 30;
+  top: 14px; right: 16px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #100A18;
+  border: 2px solid #3A2A5C;
+  color: var(--c-dim);
+  transition: border-color var(--t-fast);
+}
+.search-wrap svg { width: 12px; height: 12px; }
+.search-wrap input {
+  width: 168px; background: none; border: 0; outline: none;
+  color: var(--c-text); font: inherit; font-size: 12px;
+}
+.search-wrap input::placeholder { color: var(--c-dim); opacity: .65; }
+.search-wrap:focus-within { border-color: var(--c-lapis); }
+
+/* ══════════ the shelf panel ══════════ */
+/* Framed in planks, because it is the inside of a bookshelf you just opened. */
+.panel { position: fixed; inset: 0; z-index: 60; }
+.panel[hidden] { display: none; }
+.panel-backdrop {
+  position: absolute; inset: 0;
+  background: var(--c-void); opacity: .84;
+  animation: fade-in var(--t-fast) linear;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: .84; } }
+
+.panel-card {
+  position: absolute;
+  inset: 7% 6%;
+  display: flex; flex-direction: column;
+  background: #1A1520;
+  /* a thin frame of log-top blocks (the ring wood): the tiled texture fills the
+     border box, the dark panel colour is clipped to the padding box on top of
+     it, so exactly one 16px row of blocks shows all the way round */
+  border: 16px solid transparent;
+  background:
+    linear-gradient(#1A1520, #1A1520) padding-box,
+    url("mc/log-top.png") 0 0 / 16px 16px repeat border-box;
+  image-rendering: pixelated;
+  box-shadow: 0 18px 60px rgba(0,0,0,.75), inset 0 0 0 2px #0B0810;
+  transform-origin: var(--origin-x, 50%) var(--origin-y, 50%);
+  animation: swing-in var(--t-slow) var(--ease);
+}
+@keyframes swing-in {
+  from { transform: perspective(1400px) rotateY(-62deg) scale(.86); opacity: 0; }
+  to   { transform: perspective(1400px) rotateY(0deg) scale(1); opacity: 1; }
+}
+.panel.closing .panel-card { animation: swing-out var(--t-base) var(--ease) forwards; }
+@keyframes swing-out {
+  from { transform: perspective(1400px) rotateY(0deg) scale(1); opacity: 1; }
+  to   { transform: perspective(1400px) rotateY(-62deg) scale(.86); opacity: 0; }
+}
+.panel.closing .panel-backdrop { animation: fade-out var(--t-base) linear forwards; }
+
+/* ── To Read is your pixel scroll ──
+   The sheet is scroll_vector.png's art, regenerated by mc.js at whatever size
+   the panel is, one art-pixel = --px screen pixels, so nothing is ever
+   stretched. mc.js sets the card's exact box and the sheet image; this only
+   describes how it moves and how its contents sit inside the art.
+   It unrolls DOWN: the sheet is revealed from the top while the roll strip
+   (.scroll-roll, drawn from the same art) rides the leading edge. */
+.panel[data-shelf="toread"] .panel-card {
+  inset: auto;                       /* the exact box comes from mc.js */
+  border: 0; border-image: none;
+  background: transparent;
+  isolation: isolate;               /* keeps the sheet canvas behind the contents */
+  box-shadow: none;
+  color: #2C2013;
+  /* keep the contents inside the drawn sheet, clear of the curl and the roll */
+  padding: calc(var(--px) * 4) calc(var(--px) * 16) calc(var(--px) * 13) calc(var(--px) * 11);
+  animation: unroll-sheet 240ms cubic-bezier(.2,.8,.25,1);
+}
+@keyframes unroll-sheet {
+  from { clip-path: inset(0 0 calc(100% - var(--px) * 12) 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+.panel[data-shelf="toread"].closing .panel-card {
+  animation: roll-sheet 190ms cubic-bezier(.5,0,.75,.2) forwards;
+}
+@keyframes roll-sheet {
+  from { clip-path: inset(0 0 0 0); }
+  to   { clip-path: inset(0 0 calc(100% - var(--px) * 12) 0); }
+}
+.scroll-rod { display: none !important; }
+/* the drawn scroll: native-size canvas, scaled up with square pixels */
+.scroll-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  z-index: -1;
+  pointer-events: none;
+}
+.panel:not([data-shelf="toread"]) .scroll-canvas { display: none; }
+.scroll-roll { display: none; }
+.panel[data-shelf="toread"] .scroll-roll {
+  display: block;
+  position: absolute; z-index: 3;
+  pointer-events: none;
+  background: transparent;
+  transform: translateY(var(--travel));
+  animation: roll-down 240ms cubic-bezier(.2,.8,.25,1);
+}
+@keyframes roll-down { from { transform: translateY(0); } to { transform: translateY(var(--travel)); } }
+.panel[data-shelf="toread"].closing .scroll-roll {
+  animation: roll-up 190ms cubic-bezier(.5,0,.75,.2) forwards;
+}
+@keyframes roll-up { from { transform: translateY(var(--travel)); } to { transform: translateY(0); } }
+
+/* text on the scroll: Nunito, ink on peach, and a readable size */
+.panel[data-shelf="toread"] .panel-head { padding: 0 0 12px; border-bottom: 2px solid rgba(0,0,0,.14); }
+.panel[data-shelf="toread"] .panel-head h2 { color: #1E150B; font-size: 30px; font-weight: 900; letter-spacing: .02em; }
+.panel[data-shelf="toread"] .panel-tally { color: #5B4630; font-size: 15px; font-weight: 700; }
+.panel[data-shelf="toread"] .sort-label { color: #5B4630; font-size: 12px; font-weight: 800; }
+.panel[data-shelf="toread"] .genre-chip,
+.panel[data-shelf="toread"] .sort-btn {
+  background: #1E150B; border-color: #1E150B; color: #FFE9D6;
+  font-size: 13px; padding: 6px 14px;
+}
+.panel[data-shelf="toread"] .genre-chip.active,
+.panel[data-shelf="toread"] .sort-btn.active,
+.panel[data-shelf="toread"] .genre-chip:hover,
+.panel[data-shelf="toread"] .sort-btn:hover { background: var(--c-lapis); border-color: var(--c-lapis); color: #fff; }
+.panel[data-shelf="toread"] .panel-body { padding: 14px 4px 4px 0; }
+.panel[data-shelf="toread"] .card-title { color: #1E150B; font-size: 14px; font-weight: 800; line-height: 1.25; margin-top: 8px; }
+.panel[data-shelf="toread"] .card-author { color: #5B4630; font-size: 12.5px; font-weight: 600; }
+.panel[data-shelf="toread"] .panel-close {
+  top: calc(var(--px) * 3); right: calc(var(--px) * 16);
+  background: #1E150B; border-color: #1E150B; color: #FFE9D6;
+}
+@keyframes fade-out { to { opacity: 0; } }
+
+.panel-close {
+  position: absolute; top: -16px; right: -16px;
+  width: 30px; height: 30px; z-index: 5;
+  border-radius: 8px;
+  background: #100A18; border: 2px solid var(--c-glyph);
+  color: var(--c-glyph); font-size: 14px; cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.panel-close:hover { background: var(--c-glyph); color: var(--c-void); }
+
+.panel-head { padding: 14px 20px 10px; border-bottom: 2px solid #2A2436; }
+.panel-title-row { display: flex; align-items: baseline; gap: 12px; }
+.panel-head h2 {
+  margin: 0;
+  font-family: "Nunito", system-ui, sans-serif; font-weight: 800;
+  font-size: 20px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--c-plank);
+}
+.panel-tally { font-size: 11px; color: var(--c-dim); }
+.panel-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.genre-chips, .sort-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sort-label { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--c-dim); }
+.genre-chip, .sort-btn {
+  padding: 5px 13px; border-radius: 999px;
+  background: #241E30; border: 1px solid #3A2F4A;
+  color: var(--c-text); font: inherit; font-size: 10.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast),
+              border-color var(--t-fast), transform var(--t-fast);
+}
+.genre-chip:hover, .sort-btn:hover {
+  background: var(--c-lapis); border-color: var(--c-lapis); color: #fff; transform: translateY(-1px);
+}
+.genre-chip.active, .sort-btn.active {
+  background: var(--c-lapis); border-color: #6D9BFF; color: #fff; font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(42,95,208,.26);
+}
+.panel-body { flex: 1; overflow-y: auto; padding: 12px 20px 18px; scrollbar-width: thin; }
+.collection { display: flex; align-items: flex-start; gap: 16px; }
+.mcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.empty-note { color: var(--c-dim); font-size: 12px; }
+
+.card { position: relative; cursor: pointer; outline: none; }
+.card .book { width: 100%; }
+.card-title {
+  margin-top: 6px; font-size: 10px; line-height: 1.25; font-weight: 600; color: var(--c-text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-author { font-size: 9px; color: var(--c-dim); }
+.score-badge {
+  position: absolute; top: -6px; right: -6px; z-index: 4;
+  min-width: 19px; height: 19px; display: grid; place-items: center;
+  background: #0B0810; color: var(--c-xp); font-size: 10px; font-weight: 700;
+}
+.score-badge.unrated { color: var(--c-dim); }
+.card:focus-visible { box-shadow: 0 0 0 2px var(--c-lapis); }
+
+/* ══════════ the detail view — unchanged from the obsidian build ══════════ */
+.spread { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
+.spread[hidden] { display: none; }
+/* Fully transparent. It still catches a click to close, but the room behind
+   the book is left exactly as it was - no dimming, so nothing can flash. */
+.spread-scrim { position: absolute; inset: 0; background: transparent; }
+.spread-book { position: relative; }
+.spread-close {
+  position: absolute; top: -16px; right: -16px;
+  width: 28px; height: 28px; z-index: 6; border-radius: 8px;
+  background: #100A18; border: 2px solid var(--c-glyph);
+  color: var(--c-glyph); font-size: 13px; cursor: pointer;
+}
+.spread-close:hover { background: var(--c-glyph); color: var(--c-void); }
+.spread-stack { position: relative; width: min(290px, 34vw); }
+.cover-mount { cursor: pointer; display: block; perspective: 1400px; }
+/* the detail cover takes the SAME shape as the book that was clicked (set by
+   mc.js as --cover-ar), so a cropped falling cover does not change shape */
+.cover-mount .book-cover { aspect-ratio: var(--cover-ar, auto); }
+.cover-mount img, .cover-mount svg { width: 100%; height: 100%; display: block; object-fit: cover; }
+.cover-mount .book { width: 100%; }
+.cover-mount .book-cover {
+  transition: transform var(--t-base) var(--ease);
+  box-shadow: 0 10px 34px rgba(0,0,0,.6);
+}
+/* the cover stays flat and centred while the page swings out beside it */
+
+/* The info is a PAGE, hinged at the cover's right edge. Closed, it lies folded
+   behind the cover; it swings out through the edge-on point and comes to rest
+   turned back slightly, so its far edge is shorter - the page in your sketch.
+   Parchment and ink, set larger than before. */
+.spread-stack { perspective: 1300px; }
+.info-sleeve {
+  position: absolute;
+  top: 1.5%; left: 100%;
+  width: min(360px, 40vw);
+  height: 97%;
+  overflow-y: auto; scrollbar-width: thin;
+  padding: 22px 24px 20px 26px;
+  background: url("ui/parch-seamless.webp") repeat;
+  background-size: 512px 512px;
+  color: #2C2013;
+  border-radius: 2px 8px 8px 2px;
+  box-shadow: inset 10px 0 14px -8px rgba(60,40,15,.45), 6px 10px 26px rgba(0,0,0,.45);
+  transform-origin: left center;
+  transform: rotateY(-178deg);
+  backface-visibility: hidden;
+  pointer-events: none;
+  transition: transform 330ms cubic-bezier(.22,.9,.3,1);
+}
+.spread.open .info-sleeve { transform: rotateY(9deg); pointer-events: auto; }
+.sleeve-inner { display: flex; flex-direction: column; gap: 12px; }
+.spread-title { font-size: 23px; font-weight: 800; line-height: 1.15; color: #2C2013; }
+.spread-byline { display: flex; align-items: center; gap: 10px; }
+.author-photo { width: 40px; height: 40px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
+.spread-author { font-size: 15px; font-weight: 600; color: #6B563A; }
+.spread-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.spread-meta .chip {
+  padding: 4px 11px; border-radius: 999px;
+  background: #2E2114; color: #F2E4C8; font-size: 12.5px; font-weight: 600;
+}
+.spread-rule { height: 1px; background: rgba(60,42,20,.25); }
+.spread-scores { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 14px; }
+.my-score { color: #6B563A; }
+.my-score b { font-size: 22px; color: #2F7A1E; }
+.their-score { color: #6B563A; opacity: .8; }
+.spread-synopsis { margin: 0; font-size: 15.5px; line-height: 1.55; color: #2C2013; }
+.spread-notes {
+  padding: 10px 12px; background: rgba(60,42,20,.08); border-left: 3px solid #B4762E;
+  font-size: 14px; line-height: 1.5;
+}
+.spread-dates { font-size: 13px; color: #8A5A22; }
+.info-hint { font-size: 12px; color: #6B563A; opacity: .7; }
+
+/* ══════════ the wizard ══════════ */
+/* Two elements on purpose: the outer one holds WHERE he is and WHICH WAY he
+   faces, the inner one holds the teleport spin. Trying to do both on a single
+   transform means every keyframe has to restate the facing, and the first
+   version of this build simply lost the animation rules altogether. */
+/* z 19 puts him beneath the falling books (20) — he is part of the room,
+   they are what you came for */
+.wizard-layer { position: absolute; inset: 0; z-index: 19; pointer-events: none; }
+.wizard {
+  position: absolute;
+  left: var(--wx, 22%); top: var(--wy, 84%);
+  height: var(--wh, 150px);
+  width: calc(var(--wh, 150px) * 26 / 56);
+  transform: translate(-50%, -100%);
+}
+.wiz-sprite {
+  position: absolute; inset: 0;
+  background: url("px/wizard.png") no-repeat center / 100% 100%;
+  image-rendering: pixelated;
+  transform-origin: 50% 100%;
+  /* --face mirrors him toward the wall he is standing at; --tilt leans him
+     into it, so he reads as looking at the shelf rather than past it */
+  transform: scaleX(var(--face, 1)) rotate(var(--tilt, 0deg));
+}
+.wizard.going  .wiz-sprite { animation: wz-out var(--t-slow) steps(6, end) forwards; }
+.wizard.coming .wiz-sprite { animation: wz-in  var(--t-slow) steps(6, end) backwards; }
+@keyframes wz-out {
+  0%   { transform: rotate(0deg)   scale(1, 1);     opacity: 1; }
+  70%  { transform: rotate(540deg) scale(.45, 1.1); opacity: 1; }
+  100% { transform: rotate(900deg) scale(0, 1.25);  opacity: 0; }
+}
+@keyframes wz-in {
+  0%   { transform: rotate(-900deg) scale(0, 1.25);  opacity: 0; }
+  30%  { transform: rotate(-540deg) scale(.45, 1.1); opacity: 1; }
+  100% { transform: rotate(0deg)    scale(1, 1);     opacity: 1; }
+}
+
+/* the puff he leaves and arrives in; sized inline from the marked box */
+.puff {
+  position: absolute;
+  background: url("px/puff-sheet.png") no-repeat 0 0;
+  background-size: 400% 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+  animation: puff-run var(--t-slow) steps(4, jump-none) forwards,
+             puff-fade var(--t-slow) linear forwards;
+}
+@keyframes puff-run  { to { background-position: 100% 0; } }
+@keyframes puff-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ══════════ dust in the lantern light ══════════ */
+/* Twelve particles, transform and opacity only, in a flat layer above the
+   baked plate so they never touch the room's own rasterisation. */
+.dust-layer { position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+.speck {
+  position: absolute;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 216, 158, .9);
+  opacity: 0;
+  animation: speck-drift var(--sd, 11s) linear infinite;
+  animation-delay: var(--sdelay, 0s);
+  will-change: transform, opacity;
+}
+@keyframes speck-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(.6); opacity: 0; }
+  12%  { opacity: .85; }
+  74%  { opacity: .5; }
+  100% { transform: translate3d(var(--sdx, 10px), var(--sdy, -120px), 0) scale(1);
+         opacity: 0; }
+}
+
+/* ══════════ meteors ══════════ */
+.meteor-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.meteor {
+  position: absolute;
+  width: 90px; height: 2px;
+  transform-origin: 0 50%;
+  transform: rotate(var(--ma, 24deg));
+  background: linear-gradient(90deg, transparent, rgba(220,232,255,.35) 40%, #FFFFFF);
+  border-radius: 2px;
+  opacity: 0;
+  animation: meteor 1s cubic-bezier(.3,.6,.4,1) forwards;
+}
+@keyframes meteor {
+  0%   { opacity: 0; translate: 0 0; }
+  12%  { opacity: 1; }
+  80%  { opacity: .9; }
+  100% { opacity: 0; translate: var(--mx, 140px) var(--my, 60px); }
+}
+
+/* ══════════ occasional small events ══════════ */
+/* One at a time, seconds apart. A book eases out of a shelf and slides back;
+   a lantern gutters. Both are one element animating once, then removed. */
+.nudge-book {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9;
+  background: linear-gradient(90deg, #3A2418 0%, #6B4A2A 18%, #8A6038 62%, #4A2E1C 100%);
+  box-shadow: inset 0 2px 0 rgba(255,220,170,.35), 0 3px 8px rgba(0,0,0,.6);
+  border-radius: 1px;
+  animation: nudge 3.2s cubic-bezier(.3,.9,.3,1) forwards;
+}
+@keyframes nudge {
+  0%   { transform: translateX(0)            scaleX(1);    opacity: 0; }
+  8%   { opacity: 1; }
+  38%  { transform: translateX(var(--nx, 9px)) scaleX(1.5); opacity: 1; }
+  62%  { transform: translateX(var(--nx, 9px)) scaleX(1.5); opacity: 1; }
+  92%  { transform: translateX(0)            scaleX(1);    opacity: 1; }
+  100% { transform: translateX(0)            scaleX(1);    opacity: 0; }
+}
+.gutter {
+  position: absolute;
+  pointer-events: none;
+  z-index: 8;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255,206,130,.5) 0%, rgba(255,150,56,.22) 38%, transparent 70%);
+  animation: gutter 1.6s ease-in-out forwards;
+}
+@keyframes gutter {
+  0%, 100% { opacity: 0; }
+  14%      { opacity: .9; }
+  30%      { opacity: .15; }
+  46%      { opacity: .8; }
+  58%      { opacity: .25; }
+  78%      { opacity: .7; }
+}
+
+/* ══════════ small screens ══════════ */
+@media (max-width: 860px) {
+  :root { --hall-w: 520px; --tile: 46px; }
+  .search-wrap { top: 10px; right: 10px; }
+  .search-wrap input { width: 96px; }
+  .scroll-trigger { width: 116px; }
+  .panel-card { inset: 4% 3%; }
+  .ench, .ench-book { transform-origin: bottom center; }
+  .spread-stack { width: min(228px, 52vw); }
+  .info-sleeve {
+    top: 100%; left: 50%; margin-left: min(-165px, -43vw);
+    width: min(330px, 86vw); height: auto;
+    /* the cover stays centred, so the page only has the lower half left */
+    /* cover is min(228px, 52vw) wide at 1.449 tall, so half its height is
+       min(165px, 37.7vw); the page gets what is left below it */
+    max-height: calc(50vh - min(165px, 37.7vw) - 20px);
+    transform-origin: top center;
+    transform: rotateX(178deg);
+  }
+  .spread.open .info-sleeve { transform: rotateX(-10deg); }
+}
+@media (max-height: 560px) {
+  .spread-stack { width: min(148px, 21vw); }
+  /* wide but short: the page goes BESIDE the cover again, not below it */
+  .info-sleeve {
+    top: 1.5%; left: 100%; margin-left: 0;
+    width: min(290px, 38vw); height: 97%; max-height: none;
+    transform-origin: left center;
+    transform: rotateY(-178deg);
+  }
+  .spread.open .info-sleeve { transform: rotateY(9deg); }
+  .ench { bottom: 2%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fall-book { animation-duration: calc(var(--dur) * 3) !important; }
+  .ench-book { animation: none; }
+  .stair-mote, .torch-glow { animation: none; }
+}
+
+/* ══════════ genre tags and sort buttons: pixel tags ══════════ */
+/* A stepped-corner pixel tag instead of the oval pill: one art-pixel (--tp)
+   notched out of each corner, a one-pixel dark outline, a light pixel row
+   along the top and a shade row along the bottom. Each genre has its own
+   muted colour (set by mc.js); the sort buttons share the shape in a neutral
+   dark so the two rows still read as different jobs. */
+#panel .genre-chip, #panel .sort-btn {
+  --tp: 3px;
+  --ol: #1A120A;
+  font-family: "Pixelify Sans", "Nunito", sans-serif;
+  font-size: 15px; font-weight: 600; letter-spacing: .02em;
+  line-height: 1;
+  padding: 8px 14px 9px;
+  border: 0; border-radius: 0;
+  color: #FFF4E2;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.45);
+  background:
+    linear-gradient(var(--ol), var(--ol)) var(--tp) 0 / calc(100% - var(--tp) * 2) var(--tp) no-repeat,
+    linear-gradient(var(--ol), var(--ol)) var(--tp) 100% / calc(100% - var(--tp) * 2) var(--tp) no-repeat,
+    linear-gradient(var(--ol), var(--ol)) 0 var(--tp) / var(--tp) calc(100% - var(--tp) * 2) no-repeat,
+    linear-gradient(var(--ol), var(--ol)) 100% var(--tp) / var(--tp) calc(100% - var(--tp) * 2) no-repeat,
+    linear-gradient(rgba(255,255,255,.26), rgba(255,255,255,.26)) var(--tp) var(--tp) / calc(100% - var(--tp) * 2) var(--tp) no-repeat,
+    linear-gradient(rgba(0,0,0,.24), rgba(0,0,0,.24)) var(--tp) calc(100% - var(--tp)) / calc(100% - var(--tp) * 2) var(--tp) no-repeat,
+    var(--tag, #3A2E24);
+  clip-path: polygon(
+    var(--tp) 0, calc(100% - var(--tp)) 0, calc(100% - var(--tp)) var(--tp), 100% var(--tp),
+    100% calc(100% - var(--tp)), calc(100% - var(--tp)) calc(100% - var(--tp)),
+    calc(100% - var(--tp)) 100%, var(--tp) 100%, var(--tp) calc(100% - var(--tp)),
+    0 calc(100% - var(--tp)), 0 var(--tp), var(--tp) var(--tp));
+  box-shadow: none;
+  transition: transform var(--t-fast) var(--ease);
+}
+#panel .sort-btn { --tag: #3A2E24; font-size: 14px; }
+#panel .genre-chip:hover, #panel .sort-btn:hover {
+  transform: translateY(-2px);
+  color: #FFFFFF;
+}
+/* selected: the outline turns light, so the tag reads as pressed-in and lit */
+#panel .genre-chip.active, #panel .sort-btn.active { --ol: #FFF4E2; transform: translateY(-1px); }
+#panel .sort-btn.active { --tag: #2A5FD0; }
+#panel .genre-chips, #panel .sort-bar { gap: 6px; }
+#panel .sort-label { font-family: "Pixelify Sans", sans-serif; font-size: 14px; }
+
+/* ══════════ To Read as a bookshelf ══════════ */
+#panelCollection.shelved { display: block; }
+.shelf-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;                          /* the same gap as Read's columns */
+  padding: 18px 0 16px;               /* 16px at the foot is the plank */
+  margin-bottom: 22px;
+}
+/* the plank the books stand on: oak from the bookshelf block, a darker lip,
+   and a soft shadow on the parchment below */
+.shelf-plank {
+  position: absolute;
+  left: 0; right: 0; bottom: -8px;   /* inside the row: never widens the panel */
+  height: 24px;
+  /* wood.jpg - Minecraft's oak log - turned so the grain runs along the
+     plank, at 2 screen px per art pixel; a light top edge and a dark front
+     lip make it read as a board rather than a strip of texture */
+  background:
+    linear-gradient(to bottom, rgba(255,236,196,.30) 0 2px, transparent 2px 19px, rgba(0,0,0,.38) 19px),
+    url("mc/log-side-h.png") 0 0 / 32px 32px repeat-x;
+  image-rendering: pixelated;
+  box-shadow: 0 8px 12px -4px rgba(60,35,10,.5);
+  pointer-events: none;
+}
+/* every book the same size, standing on the plank */
+.shelved .card { flex: 0 0 auto; position: relative; }   /* width set by mc.js */
+.shelved .card .book-cover { aspect-ratio: 328 / 475; }
+.shelved .card .book-cover img,
+.shelved .card .book-cover svg { width: 100%; height: 100%; object-fit: cover; }
+.shelved .card .score-badge { display: none; }
+/* pulled slightly off the shelf when you point at it */
+.shelved .card:hover .book-cover,
+.shelved .card:focus-visible .book-cover { transform: translate3d(0, -8px, 0) rotateY(-6deg); }
+
+/* no labels at rest; the name appears only while hovered */
+.card-tag {
+  position: absolute;
+  /* exactly the book's width: a wider tag hung off the first and last books
+     and was clipped by the panel edge */
+  left: 0; right: 0; bottom: 14px;
+  z-index: 5;
+  padding: 8px 11px 9px;
+  background: #1A120A;
+  clip-path: polygon(3px 0, calc(100% - 3px) 0, calc(100% - 3px) 3px, 100% 3px,
+    100% calc(100% - 3px), calc(100% - 3px) calc(100% - 3px), calc(100% - 3px) 100%,
+    3px 100%, 3px calc(100% - 3px), 0 calc(100% - 3px), 0 3px, 3px 3px);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast) linear;
+}
+.shelved .card:hover .card-tag,
+.shelved .card:focus-visible .card-tag { opacity: 1; }
+#panel .shelved .card-tag .card-title {
+  margin: 0; color: #FFF4E2; font-size: 14px; font-weight: 800; line-height: 1.2;
+  -webkit-line-clamp: 3;
+}
+#panel .shelved .card-tag .card-author { color: #E8C9A0; font-size: 12px; font-weight: 600; margin-top: 2px; }
+
+/* ══════════ phones: the tags become two swipeable rows ══════════ */
+/* Wrapping, 14 genres and 5 sorts took 88% of the scroll on a phone. Each
+   group is now one row you swipe sideways, fading out at the right edge so it
+   is obvious there is more. Short screens too: a phone on its side is wide
+   enough to skip the width rule but has even less height to spare. */
+@media (max-width: 700px), (max-height: 500px) {
+  #panel .panel-title-row { flex-wrap: wrap; row-gap: 2px; padding-right: 40px; }   /* clear of the close button */
+  #panel .panel-head h2 { font-size: 22px; white-space: nowrap; }
+  #panel .panel-tally { font-size: 12px; }
+  #panel .panel-filters { display: block; margin-top: 6px; }
+  #panel .genre-chips, #panel .sort-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px 24px 4px 0;
+    -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
+    mask-image: linear-gradient(90deg, #000 82%, transparent);
+  }
+  #panel .genre-chips::-webkit-scrollbar, #panel .sort-bar::-webkit-scrollbar { display: none; }
+  #panel .sort-bar { margin-top: 4px; }
+  #panel .genre-chip, #panel .sort-btn { flex: 0 0 auto; font-size: 13px; padding: 7px 11px 8px; }
+  #panel .sort-label { flex: 0 0 auto; }
+}
+
+
+/* the frame's pixel look must not leak onto the covers inside the panel */
+.panel-card > * { image-rendering: auto; }
+.panel-card > canvas.scroll-canvas { image-rendering: pixelated; }
+
+/* ══════════ the book on the enchanting table ══════════ */
+/* A solid closed book - front cover, back board, spine and three page edges -
+   tilted back and turning slowly all the way round, like the book floating
+   over a Minecraft enchanting table. Because it is a real box, it stays the
+   same object at every angle instead of a flat cover narrowing to a line. */
+.ench-book {
+  --bw: 76px; --bh: 110px; --bd: 16px;
+  width: var(--bw); height: var(--bh);
+  margin-left: calc(var(--bw) / -2);
+  bottom: calc(1.5% + 118px);
+  perspective: none;
+  animation: book-bob 3.6s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+@keyframes book-bob {
+  0%, 100% { transform: translateY(0)     rotateX(-14deg) rotateZ(-6deg); }
+  50%      { transform: translateY(-10px) rotateX(-14deg) rotateZ(-6deg); }
+}
+.ench-book .solid {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  animation: book-spin 9s linear infinite;
+}
+@keyframes book-spin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+.ench-book:hover, .ench-book:hover .solid { animation-play-state: paused; }
+.ench-book .face {
+  position: absolute; left: 0; top: 0;
+  backface-visibility: hidden;
+}
+.ench-book .front {
+  width: var(--bw); height: var(--bh);
+  transform: translateZ(calc(var(--bd) / 2));
+  border-radius: 2px 4px 4px 2px; overflow: hidden;
+  box-shadow: 0 0 18px rgba(110, 200, 255, .45);
+}
+.ench-book .front img, .ench-book .front svg {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.ench-book .back {
+  width: var(--bw); height: var(--bh);
+  transform: rotateY(180deg) translateZ(calc(var(--bd) / 2));
+  background: linear-gradient(90deg, #3A2418, #5A3A22 60%, #3A2418);
+  border-radius: 4px 2px 2px 4px;
+}
+.ench-book .spine {
+  width: var(--bd); height: var(--bh);
+  left: calc(50% - var(--bd) / 2);
+  transform: rotateY(-90deg) translateZ(calc(var(--bw) / 2));
+  background: linear-gradient(90deg, #2A180E, #4E321C 50%, #2A180E);
+}
+.ench-book .fore {
+  width: var(--bd); height: calc(var(--bh) - 4px); top: 2px;
+  left: calc(50% - var(--bd) / 2);
+  transform: rotateY(90deg) translateZ(calc(var(--bw) / 2 - 2px));
+  background: repeating-linear-gradient(90deg, #EFE3C6 0 2px, #D4C29C 2px 3px);
+}
+.ench-book .top, .ench-book .bottom {
+  width: calc(var(--bw) - 3px); height: var(--bd);
+  top: calc(50% - var(--bd) / 2); left: 1px;
+  background: repeating-linear-gradient(0deg, #EFE3C6 0 2px, #D4C29C 2px 3px);
+}
+.ench-book .top    { transform: rotateX(90deg)  translateZ(calc(var(--bh) / 2 - 2px)); }
+.ench-book .bottom { transform: rotateX(-90deg) translateZ(calc(var(--bh) / 2 - 2px)); }
+.ench-caption { bottom: calc(1.5% + 86px); }
+
+/* ══════════ the To Read trigger: your pixel scroll ══════════ */
+.scroll-trigger { width: 132px; }
+.scroll-trigger .trig-canvas {
+  display: block; width: 100%; height: auto;
+  image-rendering: pixelated;
+}
+.scroll-trigger .trig-count {
+  top: 44%; left: 46%;
+  font-family: "Pixelify Sans", sans-serif; font-weight: 700;
+  font-size: 30px; color: #1A120A;
+}
+.scroll-trigger .trig-label { display: none; }
+
+/* the shelf never scrolls sideways; long rows simply wrap to the next plank */
+.panel[data-shelf="toread"] .panel-body { overflow-x: hidden; }
+@media (max-width: 700px) {
+  /* a little less margin on the right, so two books fit a phone's shelf */
+  .panel[data-shelf="toread"] .panel-card { padding-right: calc(var(--px) * 13); padding-left: calc(var(--px) * 10); }
+}

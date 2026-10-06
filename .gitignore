@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Everything from earlier designs, plus the source art the Minecraft textures
+# were cut from. Kept on disk for reference; never published.
+previous_design/

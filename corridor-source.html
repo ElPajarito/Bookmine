@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<!--
+  The 3D source for the corridor plates.
+
+  One source, five lights: load it as corridor-source.html?t=dawn (or morning,
+  afternoon, dusk, night) and the sky through the glass ceiling, the daylight
+  falling onto the shelves and the strength of the lanterns all change to
+  match. bake_corridor.py renders each and the page shows the one that fits
+  the visitor's clock.
+
+  The camera, the hall width and the floor are deliberately untouched between
+  versions: the wizard's spots were measured against this exact geometry.
+
+  Never served. Run:  python3 bake_corridor.py
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>corridor source</title>
+<style>
+  :root {
+    --hall-w: 470px;
+    --hall-h: 620px;
+    --hall-d: 3600px;          /* long: the shelves must never visibly end */
+    --tile: 58px;
+    --t8: calc(var(--tile) * 8);
+    --shift: -1180px;          /* slides the long hall away from the camera */
+
+    /* set per time of day by the script below */
+    --sky-top: #05081A;  --sky-low: #11163A;
+    --day: 120,140,220;  --day-a: .06;
+    --dark: .50;
+    --lamp: 1;
+    --sun: #EEF2FF;  --sun-x: 60%;  --sun-y: 30%;  --sun-s: 44px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #05040A; }
+
+  .scene {
+    position: fixed; inset: 0; overflow: hidden;
+    perspective: 820px;
+    perspective-origin: 50% 44%;
+    background: #05040A;
+  }
+  .room { position: absolute; left: 50%; top: 44%; transform-style: preserve-3d; }
+  .plane { position: absolute; background-repeat: repeat; image-rendering: pixelated; }
+
+  /* ── the shelves ── */
+  /* FLAT, deliberately. With preserve-3d, every overlay below was its own 3D
+     plane, and the lantern fixtures (themselves 3D groups) made Chrome re-split
+     the wall for sorting. The near-coplanar overlays then sorted by tie-break:
+     on the left the warm lantern wash landed in front of the dark fade, on the
+     right behind it - so the right wall's receding shelves went dark. Flat, the
+     overlays composite in DOM order, identically on both walls. The lanterns
+     live in a separate 3D group (.fixtures) with the same transform. */
+  .wall, .fixtures {
+    width: var(--hall-d); height: var(--hall-h);
+    margin-left: calc(var(--hall-d) / -2);
+    margin-top: calc(var(--hall-h) / -2);
+  }
+  .wall { background-image: url("mc/wall-tiled.png"); background-size: var(--t8) var(--t8); }
+  .wall   { transform-style: flat; }
+  .fixtures { transform-style: preserve-3d; background: none; }
+  .wall-l, .fixtures-l { transform: translateX(calc(var(--hall-w) / -2)) rotateY(90deg)  translateX(calc(var(--shift) * -1)); }
+  .wall-r, .fixtures-r { transform: translateX(calc(var(--hall-w) /  2)) rotateY(-90deg) translateX(var(--shift)); }
+
+  /* how dark the room is at this hour, and the daylight coming down onto the
+     shelves from the glass above */
+  .wall-light {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(to bottom, rgba(var(--day), calc(var(--day-a) * 1.5)) 0%,
+                                 rgba(var(--day), var(--day-a)) 26%, transparent 62%),
+      linear-gradient(rgba(6,4,12,var(--dark)), rgba(6,4,12,var(--dark)));
+    pointer-events: none;
+  }
+  .wall-ao {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(to bottom, rgba(4,3,9,.70) 0%, rgba(4,3,9,.20) 6%, transparent 14%),
+      linear-gradient(to top,    rgba(4,3,9,.92) 0%, rgba(4,3,9,.36) 8%, transparent 19%);
+    pointer-events: none;
+  }
+  /* The fade. The two walls are rotated in OPPOSITE directions, so a single
+     gradient lands its dark end at the far end of one wall and behind the
+     camera on the other - which is exactly how the left wall ended up with a
+     hard edge. Each wall gets its own direction, and the fall-off is long. */
+  .wall-fade {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+  .wall-l .wall-fade { background: linear-gradient(to left,  var(--fade-stops)); }
+  .wall-r .wall-fade { background: linear-gradient(to right, var(--fade-stops)); }
+  :root {
+    --fade-stops:
+      #05040A 0%, rgba(5,4,10,.99) 10%, rgba(5,4,10,.95) 19%,
+      rgba(5,4,10,.86) 27%, rgba(5,4,10,.72) 35%, rgba(5,4,10,.54) 43%,
+      rgba(5,4,10,.36) 51%, rgba(5,4,10,.20) 59%, rgba(5,4,10,.08) 67%,
+      transparent 75%;
+  }
+
+  /* ── floor ── */
+  .floor, .ceiling, .sky {
+    width: var(--hall-w); height: var(--hall-d);
+    margin-left: calc(var(--hall-w) / -2);
+    margin-top: calc(var(--hall-d) / -2);
+    background-size: var(--t8) var(--t8);
+  }
+  .floor {
+    background-image: url("mc/floor-chess.png");
+    transform: translateY(calc(var(--hall-h) / 2)) rotateX(90deg) translateY(var(--shift));
+  }
+  /* a child of the floor, not a second coplanar plane that would z-fight.
+     The floor's far end is its top, so the moss is masked in toward the top. */
+  .floor-moss {
+    position: absolute; inset: 0;
+    background: url("mc/floor-moss.png") repeat;
+    background-size: var(--t8) var(--t8);
+    image-rendering: pixelated;
+    -webkit-mask-image: linear-gradient(to bottom, #000 18%, transparent 44%);
+    mask-image: linear-gradient(to bottom, #000 18%, transparent 44%);
+  }
+  .floor-light {
+    position: absolute; inset: 0;
+    background:
+      /* daylight pooling on the tiles under the glass */
+      radial-gradient(ellipse 60% 20% at 50% 88%, rgba(var(--day), calc(var(--day-a) * 1.4)), transparent 72%),
+      radial-gradient(ellipse 55% 16% at 50% 66%, rgba(var(--day), var(--day-a)), transparent 72%),
+      /* the lanterns' warm pools, stronger when it is dark */
+      radial-gradient(ellipse 40% 5% at 50% 90%, rgba(255,186,96,calc(.26 * var(--lamp))), transparent 70%),
+      radial-gradient(ellipse 44% 6% at 50% 74%, rgba(255,176,82,calc(.20 * var(--lamp))), transparent 72%),
+      /* contact shadow down both edges */
+      linear-gradient(90deg,  rgba(4,3,9,.88) 0%, rgba(4,3,9,.30) 10%, transparent 24%),
+      linear-gradient(270deg, rgba(4,3,9,.88) 0%, rgba(4,3,9,.30) 10%, transparent 24%),
+      /* and the long fall-off into the dark */
+      linear-gradient(to bottom, #05040A 0%, rgba(5,4,10,.94) 20%, rgba(5,4,10,.62) 34%,
+                                  rgba(5,4,10,.26) 46%, transparent 58%),
+      linear-gradient(rgba(6,5,12,calc(var(--dark) * .9)), rgba(6,5,12,calc(var(--dark) * .9)));
+  }
+
+  /* ── the glass ceiling and the sky beyond it ── */
+  .sky {
+    transform: translateY(calc(var(--hall-h) / -2 - 6px)) rotateX(-90deg) translateY(calc(var(--shift) * -1));
+    /* zenith over your head, horizon toward the far end */
+    background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-low) 70%, var(--sky-low) 100%);
+  }
+  .sun::before, .sun::after {
+    content: ""; position: absolute; background: rgba(150,160,190,.55);
+    opacity: var(--craters, 0);
+  }
+  .sun::before { left: 22%; top: 26%; width: 22%; height: 22%; }
+  .sun::after  { left: 58%; top: 56%; width: 16%; height: 16%; }
+  .sun {
+    position: absolute;
+    left: var(--sun-x); top: var(--sun-y);
+    width: var(--sun-s); height: var(--sun-s);
+    margin-left: calc(var(--sun-s) / -2);
+    background: var(--sun);
+    box-shadow: 0 0 0 calc(var(--sun-s) * .18) color-mix(in srgb, var(--sun) 40%, transparent),
+                0 0 calc(var(--sun-s) * 1.6) calc(var(--sun-s) * .5) color-mix(in srgb, var(--sun) 35%, transparent);
+    image-rendering: pixelated;
+  }
+  .stars { position: absolute; inset: 0; opacity: var(--stars, 0); }
+  /* square, like Minecraft's own stars, in three sizes so the field has depth */
+  .star { position: absolute; background: #EAF0FF; }
+  .star.s2 { box-shadow: 0 0 4px rgba(210,225,255,.8); }
+  .star.s3 { box-shadow: 0 0 8px 1px rgba(220,232,255,.9); }
+  /* a faint band of dense stars, the Milky Way's Minecraft cousin */
+  .galaxy {
+    position: absolute; left: -10%; top: 8%; width: 120%; height: 34%;
+    transform: rotate(-14deg);
+    background: radial-gradient(ellipse 50% 30% at 50% 50%,
+      rgba(150,160,255,.18) 0%, rgba(120,90,200,.10) 45%, transparent 75%);
+    opacity: var(--stars, 0);
+  }
+  /* the planets: two small steady discs of colour */
+  .planet { position: absolute; border-radius: 50%; opacity: var(--stars, 0); }
+  /* Minecraft's clouds: flat, square-edged, drifting slabs. Daytime only. */
+  .cloud {
+    position: absolute;
+    background: rgba(255,255,255,.86);
+    box-shadow: inset 0 -4px 0 rgba(200,214,236,.7);
+    opacity: var(--clouds, 0);
+  }
+  /* Glass blocks twice the size of a shelf block. At the shelves' own size the
+     frame lines were so dense, seen this steeply, that they swallowed the sky;
+     bigger panes put four times less frame between you and it. */
+  .ceiling {
+    filter: brightness(calc(1.04 - var(--dark) * 1.05));
+    background-size: calc(var(--t8) * 2) calc(var(--t8) * 2) !important;
+    background-image: url("mc/glass-tiled.png");
+    transform: translateY(calc(var(--hall-h) / -2)) rotateX(-90deg) translateY(calc(var(--shift) * -1));
+  }
+  .ceiling-fade {
+    position: absolute; inset: 0;
+    /* the ceiling's far end is its BOTTOM edge */
+    background: linear-gradient(to top, #05040A 0%, rgba(5,4,10,.95) 22%,
+                                 rgba(5,4,10,.66) 38%, rgba(5,4,10,.28) 52%, transparent 64%);
+  }
+
+  .backwall {
+    width: var(--hall-w); height: var(--hall-h);
+    margin-left: calc(var(--hall-w) / -2);
+    margin-top: calc(var(--hall-h) / -2);
+    background: #05040A;
+    transform: translateZ(calc(var(--hall-d) / -2 + var(--shift)));
+  }
+
+  /* ── lanterns: billboarded, hung from brackets standing off the shelf ── */
+  /* The old ones were flat sprites stuck to the wall plane, so they inherited
+     its 90-degree turn and were seen almost edge-on. These stand 64px out into
+     the corridor and are turned back to face the camera. */
+  .fixture {
+    position: absolute;
+    transform-style: preserve-3d;
+    width: 0; height: 0;
+  }
+  .arm {
+    position: absolute;
+    left: 0; top: 0;
+    width: 66px; height: 7px;
+    transform-origin: 0 50%;
+    transform: rotateY(-90deg);     /* runs out of the wall, into the room */
+    background: linear-gradient(to bottom, #6B4A2A, #3E2A16);
+    box-shadow: inset 0 1px 0 rgba(255,210,150,.35);
+  }
+  /* preserve-3d is load-bearing. Flattened, the lamp, its bloom and its light
+     shaft become ONE plane; the bloom and shaft are wide enough to cross the
+     wall, and Chrome sorted that whole plane behind the left wall - only 9% of
+     each left lantern painted while hit-testing still reported it on top. As
+     separate planes the lamp is sorted on its own and both walls match. */
+  .billboard { position: absolute; transform-style: preserve-3d; }
+  .hang {
+    position: absolute;
+    left: 0; top: 0;
+    transform-style: preserve-3d;
+    transform: translateZ(62px);    /* out at the bracket's tip */
+  }
+  .chain {
+    position: absolute;
+    left: -1.5px; top: 4px;
+    width: 3px; height: 16px;
+    background: repeating-linear-gradient(to bottom, #3A3640 0 3px, #5A5462 3px 5px);
+  }
+  .lamp {
+    position: absolute;
+    left: calc(var(--tile) * -0.62);
+    top: 18px;
+    width: calc(var(--tile) * 1.24);
+    height: calc(var(--tile) * 1.64);
+    background: url("mc/lantern3d.png") no-repeat center / 100% 100%;
+    image-rendering: pixelated;
+  }
+  .lamp-bloom {
+    position: absolute;
+    width: calc(var(--tile) * 3); height: calc(var(--tile) * 3);
+    left: calc(var(--tile) * -1.5); top: calc(var(--tile) * -0.4);
+    background: radial-gradient(circle,
+      rgba(255,236,190,calc(.70 * var(--lamp))) 0%, rgba(255,186,90,calc(.40 * var(--lamp))) 22%,
+      rgba(255,140,44,calc(.14 * var(--lamp))) 46%, transparent 70%);
+  }
+  .lamp-shaft {
+    position: absolute;
+    width: calc(var(--tile) * 3.2); height: calc(var(--tile) * 6.2);
+    left: calc(var(--tile) * -1.6); top: calc(var(--tile) * 1.4);
+    background: linear-gradient(to bottom,
+      rgba(255,206,128,calc(.30 * var(--lamp))) 0%, rgba(255,178,84,calc(.15 * var(--lamp))) 34%,
+      rgba(255,160,64,calc(.05 * var(--lamp))) 66%, transparent 92%);
+    -webkit-clip-path: polygon(38% 0%, 62% 0%, 100% 100%, 0% 100%);
+    clip-path: polygon(38% 0%, 62% 0%, 100% 100%, 0% 100%);
+  }
+  /* the wash each lantern throws back onto the shelf behind it */
+  .wall-wash {
+    position: absolute;
+    width: calc(var(--tile) * 6.4); height: calc(var(--tile) * 6.4);
+    margin-left: calc(var(--tile) * -3.2); margin-top: calc(var(--tile) * -2.6);
+    background: radial-gradient(circle,
+      rgba(255,198,112,calc(.40 * var(--lamp))) 0%, rgba(255,150,56,calc(.18 * var(--lamp))) 34%, transparent 70%);
+  }
+</style>
+</head>
+<body>
+  <div class="scene">
+    <div class="room">
+      <div class="plane sky"><div class="galaxy"></div><div class="stars" id="stars"></div><div id="bodies"></div><div id="clouds"></div><div class="sun"></div></div>
+      <div class="plane ceiling"><div class="ceiling-fade"></div></div>
+      <div class="plane wall wall-l"><div class="wall-light"></div><div class="wall-ao"></div><div class="wall-fade"></div></div>
+      <div class="plane wall wall-r"><div class="wall-light"></div><div class="wall-ao"></div><div class="wall-fade"></div></div>
+      <div class="plane fixtures fixtures-l"></div>
+      <div class="plane fixtures fixtures-r"></div>
+      <div class="plane floor"><div class="floor-moss"></div><div class="floor-light"></div></div>
+      <div class="plane backwall"></div>
+    </div>
+  </div>
+
+<script>
+/* ── the five hours ──
+   day / day-a : the colour and strength of light falling through the glass
+   dark        : how much the room sinks into shadow
+   lamp        : how much the lanterns matter against the daylight
+   sun-*       : where the sun or moon sits in the sky, as seen through the glass */
+const HOURS = {
+  dawn:      { skyTop:"#3B5486", skyLow:"#F0A06C", day:"255,186,150", dayA:.26, dark:.30, lamp:.78,
+               sun:"#FFD2A0", sunX:"58%", sunY:"58%", sunS:"100px", stars:.30, clouds:.45, craters:0 },
+  morning:   { skyTop:"#5E9BE6", skyLow:"#BFE0FF", day:"214,232,255", dayA:.40, dark:.12, lamp:.34,
+               sun:"#FFF6D0", sunX:"44%", sunY:"34%", sunS:"92px", stars:0, clouds:1, craters:0 },
+  afternoon: { skyTop:"#3F7BD6", skyLow:"#98C6F2", day:"255,230,186", dayA:.44, dark:.08, lamp:.28,
+               sun:"#FFFBE6", sunX:"52%", sunY:"18%", sunS:"88px", stars:0, clouds:.85, craters:0 },
+  dusk:      { skyTop:"#261F52", skyLow:"#E06A3A", day:"255,146,86",  dayA:.24, dark:.34, lamp:.86,
+               sun:"#FF8A50", sunX:"46%", sunY:"60%", sunS:"108px", stars:.55, clouds:.35, craters:0 },
+  night:     { skyTop:"#04071A", skyLow:"#10163A", day:"120,140,220", dayA:.06, dark:.50, lamp:1,
+               sun:"#E8EEFF", sunX:"62%", sunY:"30%", sunS:"80px", stars:1, clouds:0, craters:1 },
+};
+const t = new URLSearchParams(location.search).get("t") || "night";
+// The sky follows the clock; the ROOM never does. Daylight through the glass
+// washed the shelves out, so every hour takes night's room lighting and only
+// the sky, sun and clouds above the glass change.
+const h = { ...(HOURS[t] || HOURS.night),
+            day: HOURS.night.day, dayA: HOURS.night.dayA,
+            dark: HOURS.night.dark, lamp: HOURS.night.lamp };
+const r = document.documentElement.style;
+r.setProperty("--sky-top", h.skyTop); r.setProperty("--sky-low", h.skyLow);
+r.setProperty("--day", h.day);        r.setProperty("--day-a", h.dayA);
+r.setProperty("--dark", h.dark);      r.setProperty("--lamp", h.lamp);
+r.setProperty("--sun", h.sun);        r.setProperty("--sun-x", h.sunX);
+r.setProperty("--sun-y", h.sunY);     r.setProperty("--sun-s", h.sunS);
+r.setProperty("--stars", h.stars);
+r.setProperty("--clouds", h.clouds);
+r.setProperty("--craters", h.craters);
+
+// stars, planets and clouds, all fixed by a seed so each bake is identical
+(() => {
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  let html = "";
+  for (let i = 0; i < 260; i++) {
+    const r = rnd(), cls = r > .96 ? "s3" : r > .82 ? "s2" : "";
+    const px = cls === "s3" ? 5 : cls === "s2" ? 4 : (rnd() < .5 ? 2 : 3);
+    html += `<div class="star ${cls}" style="left:${(rnd()*100).toFixed(2)}%;top:${(rnd()*78).toFixed(2)}%;
+             width:${px}px;height:${px}px;opacity:${(.4 + rnd()*.6).toFixed(2)}"></div>`;
+  }
+  document.getElementById("stars").innerHTML = html;
+
+  document.getElementById("bodies").innerHTML = `
+    <div class="planet" style="left:24%;top:22%;width:14px;height:14px;
+      background:radial-gradient(circle at 35% 35%,#FFD9A8,#C87A3E);box-shadow:0 0 12px rgba(255,190,120,.5)"></div>
+    <div class="planet" style="left:74%;top:44%;width:10px;height:10px;
+      background:radial-gradient(circle at 35% 35%,#CFE4FF,#5C7FC8);box-shadow:0 0 10px rgba(150,190,255,.5)"></div>`;
+
+  // flat slabs made of a few overlapping rectangles, the way Minecraft draws them
+  let clouds = "";
+  for (let i = 0; i < 9; i++) {
+    const x = rnd()*88, y = 4 + rnd()*62, w = 40 + rnd()*70, h = 12 + rnd()*10;
+    clouds += `<div class="cloud" style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%;width:${w.toFixed(0)}px;height:${h.toFixed(0)}px"></div>`;
+    clouds += `<div class="cloud" style="left:${(x + 2 + rnd()*4).toFixed(1)}%;top:${(y - 1.6).toFixed(1)}%;width:${(w*.55).toFixed(0)}px;height:${(h*.8).toFixed(0)}px"></div>`;
+  }
+  document.getElementById("clouds").innerHTML = clouds;
+})();
+
+// lanterns on brackets, down both walls
+const TILE = 58, N = 7;
+const START = 0.13, STEP = 0.090;     // 7 a side; was 9 every 0.072
+const DEPTH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hall-d"));
+document.querySelectorAll(".wall").forEach(wall => {
+  const left = wall.classList.contains("wall-l");
+  const group = document.querySelector(left ? ".fixtures-l" : ".fixtures-r");
+  for (let i = 0; i < N; i++) {
+    // spaced along the stretch that is visible before the dark. On the left
+    // wall local x grows AWAY from the camera; on the right it grows TOWARD
+    // it, so the right-hand positions are mirrored.
+    const along = (START + i * STEP) * DEPTH;
+    const x = left ? along : DEPTH - along;
+    const y = TILE * 1.25;
+
+    // the warm light each lantern throws on the shelf: part of the flat wall,
+    // painted after the fade in DOM order, so it is identical on both sides
+    const wash = document.createElement("div");
+    wash.className = "wall-wash";
+    wash.style.left = x + "px"; wash.style.top = (y + TILE * 0.9) + "px";
+    wall.appendChild(wash);
+
+    const face = left ? -90 : 90;
+    const f = document.createElement("div");
+    f.className = "fixture lantern";
+    f.style.left = x + "px"; f.style.top = y + "px";
+    f.innerHTML = `
+      <div class="arm"></div>
+      <div class="hang">
+        <div class="billboard" style="transform:rotateY(${face}deg)">
+          <div class="lamp-shaft"></div>
+          <div class="lamp-bloom"></div>
+          <div class="chain"></div>
+          <div class="lamp"></div>
+        </div>
+      </div>`;
+    group.appendChild(f);
+  }
+});
+
+// the Read shelf's four corners, for bake_corridor.py to measure
+const READ_ZONE = { x0: 3364, x1: 3480, y0: 464, y1: 580 };   // wall-local px, block-aligned
+// Portrait phones only see the middle ~37-63% of the plate, which crops the
+// zone above clean off. This one sits further down the hall, where the wall is
+// still on screen: 6 blocks wide by 4 tall, so it is a usable tap target there.
+const READ_ZONE_NARROW = { x0: 2552, x1: 2900, y0: 348, y1: 580 };
+(() => {
+  const w = document.querySelector(".wall-r");
+  for (const [z, pre] of [[READ_ZONE, ""], [READ_ZONE_NARROW, "n"]])
+    [["tl", z.x0, z.y0], ["tr", z.x1, z.y0], ["br", z.x1, z.y1], ["bl", z.x0, z.y1]].forEach(([k, x, y]) => {
+      const m = document.createElement("div");
+      m.className = "read-corner"; m.dataset.k = pre + k;
+      m.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:1px;height:1px`;
+      w.appendChild(m);
+    });
+})();
+</script>
+</body>
+</html>

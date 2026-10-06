@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOOKmine — the corridor</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="mc.css">
+</head>
+<body>
+
+  <div class="scene">
+    <!-- The corridor. It IS a real CSS 3D render — walls, floor, ceiling and
+         a curved staircase as actual planes in space — but baked to a plate,
+         because a live preserve-3d scene re-rasterises on every repaint
+         (measured: 61fps static, 15fps the moment anything animates). The
+         camera never moves, so the bake is visually identical and free.
+         Rebuild it with: python3 bake_corridor.py -->
+    <div class="corridor-plate"></div>
+
+    <!-- the one part that must stay live 3D, because it hinges -->
+    <!-- the Read shelf: four blocks of the right-hand wall. Invisible until
+         hovered; its outline is set by mc.js from the baked plate data. -->
+    <button class="read-zone" id="readZone" aria-label="Open the shelf of books read"></button>
+    <div class="read-label" id="readLabel">Read<b id="readCount">0</b></div>
+
+    <!-- everything that moves lives out here, above the static 3D room -->
+    <div class="meteor-layer" id="meteors" aria-hidden="true"></div>
+    <div class="glow-layer" id="glows" aria-hidden="true"></div>
+    <div class="mote-layer" id="motes" aria-hidden="true"></div>
+    <div class="dust-layer" id="dust" aria-hidden="true"></div>
+    <div class="dust-layer" id="events" aria-hidden="true"></div>
+
+    <div class="wizard-layer" id="wizardLayer" aria-hidden="true">
+      <!-- placed from the marked-up screenshot by mc.js -->
+    </div>
+
+    <div class="fall-layer" id="fallMid"></div>
+
+    <!-- to read -->
+    <button class="scroll-trigger" id="scrollTrigger" aria-label="Open the to-read scroll">
+      <canvas class="trig-canvas" id="trigCanvas" aria-hidden="true"></canvas>
+      <span class="trig-count" id="countToread">0</span>
+      <span class="trig-label">To Read</span>
+      <span class="trig-sub" id="subToread" hidden></span>
+    </button>
+
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5 L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <input type="search" id="searchBox" placeholder="search the shelves…" autocomplete="off" aria-label="Search the library">
+    </div>
+
+    <!-- currently reading, stored above the enchanting table -->
+    <div class="ench-glow" aria-hidden="true"></div>
+    <div class="ench-sparks" id="enchSparks" aria-hidden="true"></div>
+    <div class="ench-book" id="enchBook" role="button" tabindex="0"
+         aria-label="Open details for the book you are reading"></div>
+    <div class="ench-caption" id="enchCaption" aria-hidden="true"></div>
+    <button class="ench" id="enchTable" aria-label="Cycle to the next book you are reading">
+      <span class="ench-block" aria-hidden="true"></span>
+      <span class="ench-label">reading</span>
+    </button>
+
+    <!-- the Read shelf is built into the right-hand wall by mc.js -->
+
+    <!-- counts Core keeps updated; the Read one is mirrored onto the block -->
+    <span id="countRead" hidden>0</span>
+    <span id="subRead" hidden></span>
+    <div id="held" hidden></div>
+    <div id="ledge" hidden></div>
+  </div>
+
+
+  <div class="panel" id="panel" hidden>
+    <div class="panel-backdrop" id="panelBackdrop"></div>
+    <!-- a scroll's rod and roll; only shown for To Read -->
+    <div class="scroll-rod" aria-hidden="true"></div>
+    <div class="scroll-roll" aria-hidden="true"></div>
+    <div class="panel-card" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
+      <button class="panel-close" id="panelClose" aria-label="Close">✕</button>
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <h2 id="panelTitle">Read</h2>
+          <span class="panel-tally" id="panelTally"></span>
+        </div>
+        <div class="panel-filters">
+          <div class="genre-chips" id="genreChips" role="group" aria-label="Filter by genre"></div>
+          <div class="sort-bar" role="group" aria-label="Sort order">
+            <span class="sort-label">sort</span>
+            <button class="sort-btn active" data-sort="default">Default</button>
+            <button class="sort-btn" data-sort="score">Rating<span class="sort-arrow"></span></button>
+            <button class="sort-btn" data-sort="year">Year<span class="sort-arrow"></span></button>
+            <button class="sort-btn" data-sort="pages">Pages<span class="sort-arrow"></span></button>
+            <button class="sort-btn" data-sort="author">Author<span class="sort-arrow"></span></button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body" id="panelBody"><div class="collection" id="panelCollection"></div></div>
+    </div>
+  </div>
+
+  <div class="spread" id="modal" hidden>
+    <div class="spread-scrim"></div>
+    <div class="spread-book" role="dialog" aria-modal="true">
+      <button class="spread-close" aria-label="Close">✕</button>
+      <div class="spread-inner" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="mc/corridor-data.js"></script>
+  <script src="core.js"></script>
+  <script src="mc.js"></script>
+</body>
+</html>
